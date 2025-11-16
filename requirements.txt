@@ -1,0 +1,10 @@
+pandas==2.1.3
+numpy==1.26.2
+plotly==5.18.0
+scipy==1.11.4
+requests==2.31.0
+python-binance==1.0.19
+websocket-client==1.6.4
+smartmoneyconcepts==1.0.0
+ta==0.11.0
+python-dotenv==1.0.0
