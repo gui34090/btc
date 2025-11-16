@@ -330,6 +330,51 @@ class BTCSmartMoneyChart:
         self.logger.info("=" * 60)
 
 
+def normalize_timeframe(tf: str) -> str:
+    """
+    Normalize timeframe input to Binance API format
+
+    Args:
+        tf: User input timeframe
+
+    Returns:
+        Normalized timeframe string
+    """
+    if not tf:
+        return '15m'
+
+    tf = tf.lower().strip()
+
+    # Handle common input variations
+    timeframe_map = {
+        '1': '1m',
+        '3': '3m',
+        '5': '5m',
+        '15': '15m',
+        '30': '30m',
+        '60': '1h',
+        '1h': '1h',
+        '2h': '2h',
+        '4h': '4h',
+        '6h': '6h',
+        '8h': '8h',
+        '12h': '12h',
+        '1d': '1d',
+        'd': '1d',
+        'day': '1d',
+        '1w': '1w',
+        'w': '1w',
+        'week': '1w',
+    }
+
+    # If already in correct format, return as is
+    if tf in ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d', '1w']:
+        return tf
+
+    # Try to map from common variations
+    return timeframe_map.get(tf, '15m')
+
+
 def main():
     """Main entry point"""
     print("""
@@ -359,17 +404,23 @@ def main():
     choice = input("\nEnter choice (1-5): ").strip()
 
     if choice == '1':
-        timeframe = input("Enter timeframe (5m/15m/1h/4h) [default: 15m]: ").strip() or '15m'
+        tf_input = input("Enter timeframe (5m/15m/1h/4h) [default: 15m]: ").strip()
+        timeframe = normalize_timeframe(tf_input)
+        print(f"Using timeframe: {timeframe}")
         results = system.run_analysis(timeframe=timeframe)
         if results:
             system.create_chart(results)
 
     elif choice == '2':
-        timeframe = input("Enter timeframe (5m/15m/1h/4h) [default: 15m]: ").strip() or '15m'
+        tf_input = input("Enter timeframe (5m/15m/1h/4h) [default: 15m]: ").strip()
+        timeframe = normalize_timeframe(tf_input)
+        print(f"Using timeframe: {timeframe}")
         system.run_backtest(timeframe=timeframe)
 
     elif choice == '3':
-        timeframe = input("Enter timeframe (5m/15m/1h/4h) [default: 15m]: ").strip() or '15m'
+        tf_input = input("Enter timeframe (5m/15m/1h/4h) [default: 15m]: ").strip()
+        timeframe = normalize_timeframe(tf_input)
+        print(f"Using timeframe: {timeframe}")
         update_interval = input("Update interval in seconds [default: 60]: ").strip()
         update_interval = int(update_interval) if update_interval else 60
         system.run_live(timeframe=timeframe, update_interval=update_interval)
