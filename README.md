@@ -1,7 +1,9 @@
-# Institutional-Grade BTC/USDT Live Chart with Smart Money Signals
+# Institutional-Grade BTC/USDT Trading System
 
 ## Overview
 Advanced trading system implementing Smart Money Concepts (SMC), Elliott Wave Theory, and Fibonacci analysis for BTC/USDT trading with real-time visualization and signal generation.
+
+**NEW:** 🏆 **[TradingView Pine Script Strategy](#tradingview-strategy)** - Professional-grade strategy for TradingView platform with 8-factor confluence system!
 
 ## Core Features
 
@@ -119,6 +121,50 @@ The system tracks:
 - Average Risk/Reward Ratio
 - Sharpe Ratio
 - Expected Value per Trade
+
+## TradingView Strategy
+
+### 🚀 Professional TradingView Pine Script (2025 Edition)
+
+We've created a world-class TradingView strategy that you can use directly on the TradingView platform. This strategy incorporates:
+
+**Advanced Features:**
+- ✅ 8-Factor Confluence System (HTF Trend, Liquidity Sweeps, Order Blocks, FVG, Premium/Discount, Kill Zones, Volume, Market Structure)
+- ✅ Smart Money Concepts (Order Blocks, Fair Value Gaps, Liquidity Detection)
+- ✅ ICT Methodology (Kill Zones, Premium/Discount Arrays, OTE)
+- ✅ Multi-Timeframe Analysis with HTF trend filtering
+- ✅ Advanced Risk Management (Dynamic R:R, ATR-based stops, Trailing stops)
+- ✅ Visual Excellence (Order blocks, FVG, liquidity levels, confluence labels)
+- ✅ Live Performance Metrics Dashboard
+
+**Quick Start:**
+1. Open `tradingview_smart_money_strategy.pine`
+2. Copy to TradingView Pine Editor
+3. Add to your chart
+4. Configure settings (see guide)
+5. Backtest and optimize
+
+**Documentation:**
+- 📘 **Complete Guide**: [`TRADINGVIEW_STRATEGY_GUIDE.md`](TRADINGVIEW_STRATEGY_GUIDE.md) - Comprehensive 100+ page guide
+- ⚡ **Quick Reference**: [`STRATEGY_QUICK_REFERENCE.md`](STRATEGY_QUICK_REFERENCE.md) - One-page cheat sheet
+
+**Recommended Settings (BTC/Crypto):**
+```
+Timeframe: 1H or 4H
+HTF: 4H or Daily
+Min Confluence: 4
+R:R Ratio: 3.0
+Kill Zones: London + NY sessions
+```
+
+**Performance Targets:**
+- Win Rate: 50-60%
+- Profit Factor: >1.5
+- Max Drawdown: <20%
+
+See the full guide for optimization, best practices, and troubleshooting.
+
+---
 
 ## Disclaimer
 

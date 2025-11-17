@@ -1,0 +1,616 @@
+//@version=5
+strategy("🏆 Institutional Smart Money Strategy [2025 Edition]",
+     overlay=true,
+     initial_capital=10000,
+     default_qty_type=strategy.percent_of_equity,
+     default_qty_value=2,
+     commission_type=strategy.commission.percent,
+     commission_value=0.1,
+     slippage=3,
+     pyramiding=0)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 📋 STRATEGY DESCRIPTION
+// ══════════════════════════════════════════════════════════════════════════════
+// This strategy combines the most powerful institutional trading concepts:
+// 1. Smart Money Concepts (SMC) - Order Blocks, FVG, Liquidity Sweeps
+// 2. ICT Methodology - Kill Zones, Premium/Discount Arrays, OTE
+// 3. Multi-Timeframe Analysis - HTF bias with LTF execution
+// 4. Volume Profile - High Volume Nodes & Value Areas
+// 5. Market Structure - BOS, ChoCH, Trend Confirmation
+// 6. Advanced Risk Management - Dynamic R:R, Position Sizing, ATR-based stops
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ⚙️ INPUT SETTINGS
+// ══════════════════════════════════════════════════════════════════════════════
+
+// === Smart Money Concepts Settings ===
+smcGroup = "Smart Money Concepts"
+enableOrderBlocks = input.bool(true, "Enable Order Blocks", group=smcGroup)
+enableFVG = input.bool(true, "Enable Fair Value Gaps", group=smcGroup)
+enableLiquiditySweeps = input.bool(true, "Enable Liquidity Sweeps", group=smcGroup)
+obLookback = input.int(20, "Order Block Lookback", minval=5, maxval=100, group=smcGroup)
+fvgMinSize = input.float(0.5, "FVG Minimum Size (%)", minval=0.1, maxval=5, group=smcGroup)
+
+// === ICT Concepts Settings ===
+ictGroup = "ICT Concepts"
+enableKillZones = input.bool(true, "Enable Kill Zones (Session Filter)", group=ictGroup)
+londonKillZone = input.session("0200-0500", "London Kill Zone", group=ictGroup)
+nyKillZone = input.session("0700-1000", "New York Kill Zone", group=ictGroup)
+asianKillZone = input.session("2000-2400", "Asian Kill Zone", group=ictGroup)
+enablePremiumDiscount = input.bool(true, "Enable Premium/Discount Arrays", group=ictGroup)
+optimalTradeEntry = input.bool(true, "Require OTE (0.618-0.786)", group=ictGroup)
+
+// === Multi-Timeframe Settings ===
+mtfGroup = "Multi-Timeframe Analysis"
+htfTimeframe = input.timeframe("240", "Higher Timeframe (HTF)", group=mtfGroup)
+enableHTFFilter = input.bool(true, "Require HTF Trend Alignment", group=mtfGroup)
+htfMaLength = input.int(50, "HTF Trend MA Length", minval=10, maxval=200, group=mtfGroup)
+
+// === Volume Analysis ===
+volGroup = "Volume Analysis"
+enableVolumeFilter = input.bool(true, "Enable Volume Confirmation", group=volGroup)
+volMultiplier = input.float(1.5, "Volume Multiplier", minval=1.0, maxval=5.0, step=0.1, group=volGroup)
+volMaLength = input.int(20, "Volume MA Length", minval=5, maxval=100, group=volGroup)
+
+// === Market Structure ===
+structureGroup = "Market Structure"
+swingLength = input.int(10, "Swing High/Low Length", minval=3, maxval=50, group=structureGroup)
+bosConfirmation = input.bool(true, "Require BOS Confirmation", group=structureGroup)
+
+// === Risk Management ===
+riskGroup = "Risk Management"
+riskRewardRatio = input.float(3.0, "Risk:Reward Ratio", minval=1.0, maxval=10.0, step=0.5, group=riskGroup)
+atrLength = input.int(14, "ATR Length (for stops)", minval=5, maxval=50, group=riskGroup)
+atrMultiplier = input.float(1.5, "ATR Multiplier", minval=0.5, maxval=5.0, step=0.1, group=riskGroup)
+useTrailingStop = input.bool(true, "Use Trailing Stop", group=riskGroup)
+trailOffset = input.float(2.0, "Trailing Stop Offset (ATR)", minval=0.5, maxval=5.0, group=riskGroup)
+
+// === Confluence Settings ===
+confluenceGroup = "Confluence Requirements"
+minConfluence = input.int(4, "Minimum Confluence Factors", minval=2, maxval=8, group=confluenceGroup)
+showConfluenceLabel = input.bool(true, "Show Confluence Score Labels", group=confluenceGroup)
+
+// === Visual Settings ===
+visualGroup = "Visual Settings"
+showOrderBlocks = input.bool(true, "Show Order Blocks", group=visualGroup)
+showFVG = input.bool(true, "Show Fair Value Gaps", group=visualGroup)
+showLiquidityLines = input.bool(true, "Show Liquidity Levels", group=visualGroup)
+showPremiumDiscount = input.bool(true, "Show Premium/Discount Zones", group=visualGroup)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 🔧 CORE FUNCTIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ATR Calculation
+atr = ta.atr(atrLength)
+
+// === Swing Points Detection ===
+swingHigh = ta.pivothigh(high, swingLength, swingLength)
+swingLow = ta.pivotlow(low, swingLength, swingLength)
+
+var float lastSwingHigh = na
+var float lastSwingLow = na
+var int lastSwingHighBar = na
+var int lastSwingLowBar = na
+
+if not na(swingHigh)
+    lastSwingHigh := swingHigh
+    lastSwingHighBar := bar_index - swingLength
+
+if not na(swingLow)
+    lastSwingLow := swingLow
+    lastSwingLowBar := bar_index - swingLength
+
+// === Order Block Detection ===
+isOrderBlock(direction) =>
+    result = false
+    if direction == 1  // Bullish OB
+        // Last down candle before strong up move
+        if close[3] < open[3] and close[2] > open[2] and close[1] > close[2]
+            result := true
+    else if direction == -1  // Bearish OB
+        // Last up candle before strong down move
+        if close[3] > open[3] and close[2] < open[2] and close[1] < close[2]
+            result := true
+    result
+
+bullishOB = enableOrderBlocks and isOrderBlock(1)
+bearishOB = enableOrderBlocks and isOrderBlock(-1)
+
+var float bullOBHigh = na
+var float bullOBLow = na
+var float bearOBHigh = na
+var float bearOBLow = na
+
+if bullishOB
+    bullOBHigh := high[3]
+    bullOBLow := low[3]
+
+if bearishOB
+    bearOBHigh := high[3]
+    bearOBLow := low[3]
+
+// === Fair Value Gap (FVG) Detection ===
+detectFVG() =>
+    bullishFVG = false
+    bearishFVG = false
+    fvgTop = 0.0
+    fvgBottom = 0.0
+
+    // Bullish FVG: Gap between high[2] and low[0]
+    if low > high[2]
+        gapSize = (low - high[2]) / high[2] * 100
+        if gapSize >= fvgMinSize
+            bullishFVG := true
+            fvgTop := low
+            fvgBottom := high[2]
+
+    // Bearish FVG: Gap between low[2] and high[0]
+    if high < low[2]
+        gapSize = (low[2] - high) / high * 100
+        if gapSize >= fvgMinSize
+            bearishFVG := true
+            fvgTop := low[2]
+            fvgBottom := high
+
+    [bullishFVG, bearishFVG, fvgTop, fvgBottom]
+
+[bullFVG, bearFVG, fvgTopLevel, fvgBottomLevel] = detectFVG()
+
+// === Liquidity Sweep Detection ===
+detectLiquiditySweep() =>
+    bullishSweep = false
+    bearishSweep = false
+
+    // Bullish sweep: Wick below last swing low then closes above
+    if not na(lastSwingLow) and enableLiquiditySweeps
+        if low < lastSwingLow and close > lastSwingLow
+            bullishSweep := true
+
+    // Bearish sweep: Wick above last swing high then closes below
+    if not na(lastSwingHigh) and enableLiquiditySweeps
+        if high > lastSwingHigh and close < lastSwingHigh
+            bearishSweep := true
+
+    [bullishSweep, bearishSweep]
+
+[liquiditySweepBull, liquiditySweepBear] = detectLiquiditySweep()
+
+// === Market Structure (BOS/ChoCH) ===
+var int trendDirection = 0  // 1 = bullish, -1 = bearish, 0 = neutral
+var float lastStructureHigh = na
+var float lastStructureLow = na
+
+detectMarketStructure() =>
+    bos = false
+    choch = false
+    newTrend = trendDirection
+
+    if not na(swingHigh) and not na(lastStructureHigh)
+        if swingHigh > lastStructureHigh
+            if trendDirection == 1
+                bos := true  // Break of Structure (continuation)
+            else
+                choch := true  // Change of Character (reversal)
+                newTrend := 1
+            lastStructureHigh := swingHigh
+
+    if not na(swingLow) and not na(lastStructureLow)
+        if swingLow < lastStructureLow
+            if trendDirection == -1
+                bos := true  // Break of Structure (continuation)
+            else
+                choch := true  // Change of Character (reversal)
+                newTrend := -1
+            lastStructureLow := swingLow
+
+    if na(lastStructureHigh) and not na(swingHigh)
+        lastStructureHigh := swingHigh
+
+    if na(lastStructureLow) and not na(swingLow)
+        lastStructureLow := swingLow
+
+    [bos, choch, newTrend]
+
+[structureBOS, structureChoCH, newTrendDir] = detectMarketStructure()
+
+if not na(newTrendDir)
+    trendDirection := newTrendDir
+
+// === Premium/Discount Arrays (Fibonacci) ===
+calculatePremiumDiscount() =>
+    inPremium = false
+    inDiscount = false
+    inEquilibrium = false
+    inOTE = false
+
+    if not na(lastSwingHigh) and not na(lastSwingLow)
+        range = lastSwingHigh - lastSwingLow
+        fib_0 = lastSwingLow
+        fib_236 = lastSwingLow + range * 0.236
+        fib_382 = lastSwingLow + range * 0.382
+        fib_5 = lastSwingLow + range * 0.5
+        fib_618 = lastSwingLow + range * 0.618
+        fib_786 = lastSwingLow + range * 0.786
+        fib_1 = lastSwingHigh
+
+        currentPrice = close
+
+        // Discount zone (0% - 38.2%)
+        if currentPrice >= fib_0 and currentPrice <= fib_382
+            inDiscount := true
+
+        // Premium zone (61.8% - 100%)
+        if currentPrice >= fib_618 and currentPrice <= fib_1
+            inPremium := true
+
+        // Equilibrium (around 50%)
+        if currentPrice >= fib_382 and currentPrice <= fib_618
+            inEquilibrium := true
+
+        // Optimal Trade Entry (61.8% - 78.6%)
+        if currentPrice >= fib_618 and currentPrice <= fib_786
+            inOTE := true
+
+    [inPremium, inDiscount, inEquilibrium, inOTE]
+
+[premiumZone, discountZone, equilibriumZone, oteZone] = calculatePremiumDiscount()
+
+// === Kill Zone Session Filter ===
+inKillZone() =>
+    result = false
+    if enableKillZones
+        inLondon = not na(time(timeframe.period, londonKillZone))
+        inNY = not na(time(timeframe.period, nyKillZone))
+        inAsian = not na(time(timeframe.period, asianKillZone))
+        result := inLondon or inNY or inAsian
+    else
+        result := true
+    result
+
+killZoneActive = inKillZone()
+
+// === Higher Timeframe Trend ===
+htfClose = request.security(syminfo.tickerid, htfTimeframe, close)
+htfMA = request.security(syminfo.tickerid, htfTimeframe, ta.sma(close, htfMaLength))
+
+htfBullish = htfClose > htfMA
+htfBearish = htfClose < htfMA
+
+// === Volume Analysis ===
+volMA = ta.sma(volume, volMaLength)
+highVolume = volume > volMA * volMultiplier
+
+volumeConfirmed = not enableVolumeFilter or highVolume
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 📊 CONFLUENCE CALCULATION
+// ══════════════════════════════════════════════════════════════════════════════
+
+calculateConfluence(isLong) =>
+    score = 0
+    factors = array.new_string()
+
+    // 1. HTF Trend Alignment
+    if isLong and htfBullish
+        score += 1
+        array.push(factors, "HTF↑")
+    else if not isLong and htfBearish
+        score += 1
+        array.push(factors, "HTF↓")
+
+    // 2. Liquidity Sweep
+    if isLong and liquiditySweepBull
+        score += 1
+        array.push(factors, "Sweep↑")
+    else if not isLong and liquiditySweepBear
+        score += 1
+        array.push(factors, "Sweep↓")
+
+    // 3. Order Block
+    if isLong and (low <= bullOBHigh and low >= bullOBLow)
+        score += 1
+        array.push(factors, "OB↑")
+    else if not isLong and (high >= bearOBLow and high <= bearOBHigh)
+        score += 1
+        array.push(factors, "OB↓")
+
+    // 4. Fair Value Gap
+    if isLong and bullFVG
+        score += 1
+        array.push(factors, "FVG↑")
+    else if not isLong and bearFVG
+        score += 1
+        array.push(factors, "FVG↓")
+
+    // 5. Premium/Discount Zone
+    if isLong and discountZone
+        score += 1
+        array.push(factors, "Discount")
+    else if not isLong and premiumZone
+        score += 1
+        array.push(factors, "Premium")
+
+    // 6. Kill Zone Active
+    if killZoneActive
+        score += 1
+        array.push(factors, "KZ")
+
+    // 7. Volume Confirmation
+    if volumeConfirmed
+        score += 1
+        array.push(factors, "Vol")
+
+    // 8. Market Structure
+    if structureBOS or structureChoCH
+        score += 1
+        array.push(factors, structureBOS ? "BOS" : "ChoCH")
+
+    [score, factors]
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 🎯 ENTRY CONDITIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Long Entry Conditions
+[longConfluence, longFactors] = calculateConfluence(true)
+longCondition = longConfluence >= minConfluence and
+     (not enableHTFFilter or htfBullish) and
+     (not optimalTradeEntry or (discountZone or oteZone))
+
+// Short Entry Conditions
+[shortConfluence, shortFactors] = calculateConfluence(false)
+shortCondition = shortConfluence >= minConfluence and
+     (not enableHTFFilter or htfBearish) and
+     (not optimalTradeEntry or (premiumZone or oteZone))
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 💰 POSITION MANAGEMENT
+// ══════════════════════════════════════════════════════════════════════════════
+
+var float entryPrice = na
+var float stopLoss = na
+var float takeProfit = na
+
+if longCondition and strategy.position_size == 0
+    entryPrice := close
+    stopLoss := close - (atr * atrMultiplier)
+    takeProfit := close + ((close - stopLoss) * riskRewardRatio)
+
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Long Exit", "Long",
+         stop=stopLoss,
+         limit=takeProfit,
+         trail_offset=useTrailingStop ? trailOffset * atr : na)
+
+if shortCondition and strategy.position_size == 0
+    entryPrice := close
+    stopLoss := close + (atr * atrMultiplier)
+    takeProfit := close - ((stopLoss - close) * riskRewardRatio)
+
+    strategy.entry("Short", strategy.short)
+    strategy.exit("Short Exit", "Short",
+         stop=stopLoss,
+         limit=takeProfit,
+         trail_offset=useTrailingStop ? trailOffset * atr : na)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 🎨 VISUALIZATIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+// === Order Blocks ===
+if showOrderBlocks
+    if bullishOB
+        box.new(bar_index - 3, bullOBHigh, bar_index + 10, bullOBLow,
+             border_color=color.new(color.green, 50),
+             bgcolor=color.new(color.green, 90),
+             text="Bull OB",
+             text_color=color.green,
+             text_size=size.small)
+
+    if bearishOB
+        box.new(bar_index - 3, bearOBHigh, bar_index + 10, bearOBLow,
+             border_color=color.new(color.red, 50),
+             bgcolor=color.new(color.red, 90),
+             text="Bear OB",
+             text_color=color.red,
+             text_size=size.small)
+
+// === Fair Value Gaps ===
+if showFVG and enableFVG
+    if bullFVG
+        box.new(bar_index - 1, fvgTopLevel, bar_index + 5, fvgBottomLevel,
+             border_color=color.new(color.blue, 60),
+             bgcolor=color.new(color.blue, 95),
+             text="FVG",
+             text_size=size.tiny)
+
+    if bearFVG
+        box.new(bar_index - 1, fvgTopLevel, bar_index + 5, fvgBottomLevel,
+             border_color=color.new(color.orange, 60),
+             bgcolor=color.new(color.orange, 95),
+             text="FVG",
+             text_size=size.tiny)
+
+// === Liquidity Levels ===
+if showLiquidityLines
+    if not na(lastSwingHigh)
+        line.new(bar_index - swingLength, lastSwingHigh, bar_index, lastSwingHigh,
+             color=color.new(color.red, 50),
+             width=1,
+             style=line.style_dashed)
+
+    if not na(lastSwingLow)
+        line.new(bar_index - swingLength, lastSwingLow, bar_index, lastSwingLow,
+             color=color.new(color.green, 50),
+             width=1,
+             style=line.style_dashed)
+
+// === Entry Signals with Confluence ===
+plotshape(longCondition, "Long Signal", shape.triangleup, location.belowbar,
+     color=color.new(color.lime, 0), size=size.normal)
+
+plotshape(shortCondition, "Short Signal", shape.triangledown, location.abovebar,
+     color=color.new(color.red, 0), size=size.normal)
+
+// === Confluence Labels ===
+if showConfluenceLabel
+    if longCondition
+        factorText = array.join(longFactors, ", ")
+        label.new(bar_index, low,
+             text="🟢 " + str.tostring(longConfluence) + "/8\n" + factorText,
+             style=label.style_label_up,
+             color=color.new(color.green, 20),
+             textcolor=color.white,
+             size=size.small)
+
+    if shortCondition
+        factorText = array.join(shortFactors, ", ")
+        label.new(bar_index, high,
+             text="🔴 " + str.tostring(shortConfluence) + "/8\n" + factorText,
+             style=label.style_label_down,
+             color=color.new(color.red, 20),
+             textcolor=color.white,
+             size=size.small)
+
+// === Premium/Discount Zones ===
+if showPremiumDiscount and enablePremiumDiscount
+    var box premiumBox = na
+    var box discountBox = na
+    var box equilibriumBox = na
+
+    if not na(lastSwingHigh) and not na(lastSwingLow)
+        range = lastSwingHigh - lastSwingLow
+
+        // Discount Zone
+        if not na(discountBox)
+            box.delete(discountBox)
+        discountBox := box.new(bar_index - 50, lastSwingLow, bar_index + 10, lastSwingLow + range * 0.382,
+             border_color=color.new(color.green, 80),
+             bgcolor=color.new(color.green, 95),
+             text="Discount",
+             text_color=color.green,
+             text_size=size.tiny)
+
+        // Premium Zone
+        if not na(premiumBox)
+            box.delete(premiumBox)
+        premiumBox := box.new(bar_index - 50, lastSwingLow + range * 0.618, bar_index + 10, lastSwingHigh,
+             border_color=color.new(color.red, 80),
+             bgcolor=color.new(color.red, 95),
+             text="Premium",
+             text_color=color.red,
+             text_size=size.tiny)
+
+        // Equilibrium
+        if not na(equilibriumBox)
+            box.delete(equilibriumBox)
+        equilibriumBox := box.new(bar_index - 50, lastSwingLow + range * 0.382, bar_index + 10, lastSwingLow + range * 0.618,
+             border_color=color.new(color.gray, 80),
+             bgcolor=color.new(color.gray, 97),
+             text="EQ",
+             text_color=color.gray,
+             text_size=size.tiny)
+
+// === Market Structure Markers ===
+plotshape(structureBOS and trendDirection == 1, "BOS Up", shape.circle, location.belowbar,
+     color=color.new(color.aqua, 30), size=size.tiny, text="BOS")
+
+plotshape(structureBOS and trendDirection == -1, "BOS Down", shape.circle, location.abovebar,
+     color=color.new(color.fuchsia, 30), size=size.tiny, text="BOS")
+
+plotshape(structureChoCH, "ChoCH", shape.diamond, location.absolute,
+     color=color.new(color.yellow, 30), size=size.tiny, text="ChoCH")
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 📈 PERFORMANCE TABLE
+// ══════════════════════════════════════════════════════════════════════════════
+
+var table performanceTable = table.new(position.top_right, 2, 6,
+     border_width=1,
+     border_color=color.gray,
+     frame_width=1,
+     frame_color=color.gray)
+
+if barstate.islast
+    // Headers
+    table.cell(performanceTable, 0, 0, "Metric",
+         bgcolor=color.new(color.blue, 80), text_color=color.white, text_size=size.small)
+    table.cell(performanceTable, 1, 0, "Value",
+         bgcolor=color.new(color.blue, 80), text_color=color.white, text_size=size.small)
+
+    // Win Rate
+    totalTrades = strategy.closedtrades
+    winningTrades = strategy.wintrades
+    winRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0
+    table.cell(performanceTable, 0, 1, "Win Rate", text_size=size.small)
+    table.cell(performanceTable, 1, 1, str.tostring(winRate, "#.##") + "%",
+         text_color=winRate >= 50 ? color.green : color.red, text_size=size.small)
+
+    // Profit Factor
+    grossProfit = strategy.grossprofit
+    grossLoss = strategy.grossloss
+    profitFactor = grossLoss != 0 ? grossProfit / math.abs(grossLoss) : 0
+    table.cell(performanceTable, 0, 2, "Profit Factor", text_size=size.small)
+    table.cell(performanceTable, 1, 2, str.tostring(profitFactor, "#.##"),
+         text_color=profitFactor >= 1.5 ? color.green : color.red, text_size=size.small)
+
+    // Total Trades
+    table.cell(performanceTable, 0, 3, "Total Trades", text_size=size.small)
+    table.cell(performanceTable, 1, 3, str.tostring(totalTrades), text_size=size.small)
+
+    // Net Profit
+    netProfit = strategy.netprofit
+    table.cell(performanceTable, 0, 4, "Net Profit", text_size=size.small)
+    table.cell(performanceTable, 1, 4, str.tostring(netProfit, "#.##"),
+         text_color=netProfit > 0 ? color.green : color.red, text_size=size.small)
+
+    // Max Drawdown
+    maxDD = strategy.max_drawdown
+    table.cell(performanceTable, 0, 5, "Max DD", text_size=size.small)
+    table.cell(performanceTable, 1, 5, str.tostring(maxDD, "#.##"),
+         text_color=color.red, text_size=size.small)
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 🎓 STRATEGY NOTES
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// BEST PRACTICES FOR THIS STRATEGY:
+//
+// 1. TIMEFRAME SELECTION:
+//    - Best on: 15m, 1H, 4H charts
+//    - HTF should be 4-6x your execution timeframe
+//    - Example: 15m chart → HTF = 1H or 4H
+//
+// 2. CONFLUENCE OPTIMIZATION:
+//    - Start with minConfluence = 4 for quality over quantity
+//    - Increase to 5-6 for higher win rate (fewer trades)
+//    - Decrease to 3 for more opportunities (lower win rate)
+//
+// 3. SESSION TIMING (CRYPTO):
+//    - Best: London (02:00-05:00) and NY (07:00-10:00) opens
+//    - Avoid: Low volume Asian session (unless trading Asian pairs)
+//
+// 4. RISK MANAGEMENT:
+//    - Never risk more than 1-2% per trade
+//    - Minimum R:R = 2.0, optimal = 3.0+
+//    - Use trailing stops for trend continuation
+//
+// 5. MARKET CONDITIONS:
+//    - Works best in: Trending markets with clear structure
+//    - Avoid: Choppy, low-volume consolidation
+//    - Filter: Use HTF trend alignment in ranging markets
+//
+// 6. OPTIMIZATION TIPS:
+//    - Backtest on at least 6-12 months of data
+//    - Optimize per asset (BTC, ETH, forex pairs differ)
+//    - Re-optimize quarterly to adapt to changing conditions
+//
+// 7. PSYCHOLOGY:
+//    - Trust the confluence system - don't force trades
+//    - Wait for all conditions - patience is key
+//    - Journal your trades to identify patterns
+//
+// ══════════════════════════════════════════════════════════════════════════════
